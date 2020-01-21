@@ -1,0 +1,15 @@
+﻿In the webgl_postprocessing_godrays.html example
+I've put in an OrbitControl, ..
+
+Under some view angles the position of the "sun" jumps & flips "downwards"!
+(see image)
+
+The sun, instead of standing "above" the grid, and raying shadows "downwards",
+it throws its rays "upwards" ..
+
+Maybe you've had a look at:
+
+
+I love 3js,
+Thank you!
+
