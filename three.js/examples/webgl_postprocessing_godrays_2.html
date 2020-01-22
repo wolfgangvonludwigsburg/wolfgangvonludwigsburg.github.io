@@ -1,0 +1,546 @@
+<link type="text/css" rel="stylesheet" href="main.css">
+<style>
+
+    #div {
+        position            : absolute;
+        left                : 20px;
+        top                 : 20px;
+    }
+
+    table {
+        font-family         : "Trebuchet MS", Arial, Helvetica, sans-serif;
+        color               : black;
+        border-collapse     : collapse;
+        width               : 400px;    /* 100%; */
+    }
+
+    table td, table th {
+        border              : 1px solid #ddd;
+        padding             : 8px;
+    }
+
+    table tr:nth-child(even){
+        background-color    : #f2f2f2;
+    }
+
+    table tr:hover {
+        background-color    : #ddd;
+    }
+
+    table th {
+        padding-top         : 12px;
+        padding-bottom      : 12px;
+        text-align          : left;
+        background-color    : #4CAF50;
+        color               : white;
+    }
+
+</style>
+
+<body>
+
+    <div id="info">
+        <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> - webgl god-rays example - tree by <a href="http://www.turbosquid.com/3d-models/free-tree-3d-model/592617" target="_blank" rel="noopener">stanloshka</a>
+    </div>
+
+<script>
+
+    class RenderMatrix{
+
+        constructor( name, matrix ){
+            let div = document.createElement( 'div' )
+            div.id = 'div'
+            div.innerHTML = name
+            document.body.appendChild( div )
+            this.table = document.createElement( 'table' )
+            this.table.id = 'matrix'
+            div.appendChild( this.table )
+
+            let tr = null
+            for( let i in matrix ){
+                if( i % 4 == 0 ){
+                    tr = document.createElement( 'tr' )
+                    this.table.appendChild( tr )
+                }
+                const td   = document.createElement( 'td' )
+                tr.appendChild( td )
+                const text = document.createTextNode( matrix[i].toFixed(2) )
+                td.appendChild( text )
+            }
+        }
+
+        update( matrix ){
+            let row = -1
+
+            for( let i in matrix ){
+
+                let col = i % 4
+                if( col == 0 ){
+                    row++
+                }
+
+                let cell = this.table.rows[ row ].cells.item( col )
+                cell.innerHTML = matrix[ i ].toFixed(2)
+                cell.style.backgroundColor = ( matrix[ i ] < 0 ) ? '#ffdddd' : 'white'
+            }
+        }
+    }
+
+</script>
+
+<script type="module">
+
+    import * as THREE from '../build/three.module.js';
+
+    import Stats from './jsm/libs/stats.module.js';
+
+    import { OBJLoader } from './jsm/loaders/OBJLoader.js';
+    import { GodRaysFakeSunShader, GodRaysDepthMaskShader, GodRaysCombineShader, GodRaysGenerateShader } from './jsm/shaders/GodRaysShader.js';
+
+    import { GUI }              from './jsm/libs/dat.gui.module.js';
+    import { OrbitControls }    from './jsm/controls/OrbitControls.js';
+
+
+    var container, stats;
+    var camera, scene, renderer, materialDepth;
+    var controls;
+    var renderMatrix;
+    var gui;
+
+    var sphereMesh;
+
+    //? var sunPosition         = new THREE.Vector3( 0, 0, 0 );
+    var sunPosition         = new THREE.Vector3( 0, 1000, -1000 );
+    var screenSpacePosition = new THREE.Vector3();
+
+    var mouseX = 0, mouseY = 0;
+
+    var postprocessing = { enabled: true };
+
+    var orbitRadius = 200;
+
+    var bgColor = 0x000511;
+    var sunColor = 0xffee00;
+
+    // Use a smaller size for some of the god-ray render targets for better performance.
+    var godrayRenderTargetResolutionMultiplier = 1.0 / 4.0;
+
+    init();
+    animate();
+
+    function init() {
+
+        container = document.createElement( 'div' );
+        document.body.appendChild( container );
+
+        //
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setClearColor( 0xffffff );
+        renderer.setPixelRatio( window.devicePixelRatio );
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        container.appendChild( renderer.domElement );
+
+        renderer.autoClear = false;
+
+        //
+
+        scene = new THREE.Scene();
+
+        //
+
+        camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 3000 );
+        camera.position.set( 150, 0, -300);
+
+        //
+        renderMatrix = new RenderMatrix( 'camera', camera.matrix.elements )
+
+        //
+        controls = new OrbitControls( camera, renderer.domElement )
+        controls.update()
+
+        //
+
+        scene.add( new THREE.GridHelper( 500   ) )
+        scene.add( new THREE.AxesHelper( 500/2 ) )
+
+        //
+
+        materialDepth = new THREE.MeshDepthMaterial();
+
+        var materialScene = new THREE.MeshBasicMaterial( { color: 0x000000 } );
+
+        // tree
+        /*?
+        var loader = new OBJLoader();
+        loader.load( 'models/obj/tree.obj', function ( object ) {
+
+            object.material = materialScene;
+            object.position.set( 0, - 150, - 150 );
+            object.scale.multiplyScalar( 400 );
+            scene.add( object );
+
+        } );
+        //?*/
+
+
+        // sun
+
+        const sunMesh = new THREE.Mesh(
+            new THREE.SphereBufferGeometry( 1, 20, 10 ),
+            new THREE.MeshBasicMaterial({ color: 0xffff00 })
+        );
+        sunMesh.scale.multiplyScalar( 20 );
+        scene.add( sunMesh );
+
+        // sphere
+
+        var geo = new THREE.SphereBufferGeometry( 1, 20, 10 );
+        sphereMesh = new THREE.Mesh( geo, materialScene );
+        sphereMesh.scale.multiplyScalar( 20 );
+        scene.add( sphereMesh );
+
+        //
+
+        stats = new Stats();
+        //? container.appendChild( stats.dom );
+
+        //
+
+        gui = new GUI;
+
+        //sunPosition
+        const gui_sunPosition = gui.addFolder('sunPosition')
+        gui_sunPosition.open()
+        gui_sunPosition.add( sunPosition, 'x' ).listen()
+        gui_sunPosition.add( sunPosition, 'y' ).listen()
+        gui_sunPosition.add( sunPosition, 'z' ).listen()
+
+        //screenSpacePosition
+        const gui_screenSpacePosition = gui.addFolder('screenSpacePosition')
+        gui_screenSpacePosition.open()
+        gui_screenSpacePosition.add( screenSpacePosition, 'x' ).listen()
+        gui_screenSpacePosition.add( screenSpacePosition, 'y' ).listen()
+        gui_screenSpacePosition.add( screenSpacePosition, 'z' ).listen()
+
+        //
+
+        document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+        document.addEventListener( 'touchstart', onDocumentTouchStart, false );
+        document.addEventListener( 'touchmove', onDocumentTouchMove, false );
+        window.addEventListener( 'resize', onWindowResize, false );
+
+        //
+
+        initPostprocessing( window.innerWidth, window.innerHeight );
+
+    }
+
+    //
+
+    function onDocumentMouseMove( event ) {
+
+        mouseX = event.clientX - window.innerWidth / 2;
+        mouseY = event.clientY - window.innerHeight / 2;
+
+    }
+
+    function onDocumentTouchStart( event ) {
+
+        if ( event.touches.length === 1 ) {
+
+            event.preventDefault();
+
+            mouseX = event.touches[ 0 ].pageX - window.innerWidth / 2;
+            mouseY = event.touches[ 0 ].pageY - window.innerHeight / 2;
+
+        }
+
+    }
+
+    function onDocumentTouchMove( event ) {
+
+        if ( event.touches.length === 1 ) {
+
+            event.preventDefault();
+
+            mouseX = event.touches[ 0 ].pageX - window.innerWidth / 2;
+            mouseY = event.touches[ 0 ].pageY - window.innerHeight / 2;
+
+        }
+
+    }
+
+    //
+
+    function onWindowResize() {
+
+        var renderTargetWidth = window.innerWidth;
+        var renderTargetHeight = window.innerHeight;
+
+        camera.aspect = renderTargetWidth / renderTargetHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize( renderTargetWidth, renderTargetHeight );
+        postprocessing.rtTextureColors.setSize( renderTargetWidth, renderTargetHeight );
+        postprocessing.rtTextureDepth.setSize( renderTargetWidth, renderTargetHeight );
+        postprocessing.rtTextureDepthMask.setSize( renderTargetWidth, renderTargetHeight );
+
+        var adjustedWidth = renderTargetWidth * godrayRenderTargetResolutionMultiplier;
+        var adjustedHeight = renderTargetHeight * godrayRenderTargetResolutionMultiplier;
+        postprocessing.rtTextureGodRays1.setSize( adjustedWidth, adjustedHeight );
+        postprocessing.rtTextureGodRays2.setSize( adjustedWidth, adjustedHeight );
+
+    }
+
+    function initPostprocessing( renderTargetWidth, renderTargetHeight ) {
+
+        postprocessing.scene = new THREE.Scene();
+
+        postprocessing.camera = new THREE.OrthographicCamera( - 0.5, 0.5, 0.5, - 0.5, - 10000, 10000 );
+        postprocessing.camera.position.z = 100;
+
+        postprocessing.scene.add( postprocessing.camera );
+
+        var pars = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBFormat };
+        postprocessing.rtTextureColors = new THREE.WebGLRenderTarget( renderTargetWidth, renderTargetHeight, pars );
+
+        // Switching the depth formats to luminance from rgb doesn't seem to work. I didn't
+        // investigate further for now.
+        // pars.format = LuminanceFormat;
+
+        // I would have this quarter size and use it as one of the ping-pong render
+        // targets but the aliasing causes some temporal flickering
+
+        postprocessing.rtTextureDepth = new THREE.WebGLRenderTarget( renderTargetWidth, renderTargetHeight, pars );
+        postprocessing.rtTextureDepthMask = new THREE.WebGLRenderTarget( renderTargetWidth, renderTargetHeight, pars );
+
+        // The ping-pong render targets can use an adjusted resolution to minimize cost
+
+        var adjustedWidth = renderTargetWidth * godrayRenderTargetResolutionMultiplier;
+        var adjustedHeight = renderTargetHeight * godrayRenderTargetResolutionMultiplier;
+        postprocessing.rtTextureGodRays1 = new THREE.WebGLRenderTarget( adjustedWidth, adjustedHeight, pars );
+        postprocessing.rtTextureGodRays2 = new THREE.WebGLRenderTarget( adjustedWidth, adjustedHeight, pars );
+
+        // god-ray shaders
+
+        var godraysMaskShader = GodRaysDepthMaskShader;
+        postprocessing.godrayMaskUniforms = THREE.UniformsUtils.clone( godraysMaskShader.uniforms );
+        postprocessing.materialGodraysDepthMask = new THREE.ShaderMaterial( {
+
+            uniforms: postprocessing.godrayMaskUniforms,
+            vertexShader: godraysMaskShader.vertexShader,
+            fragmentShader: godraysMaskShader.fragmentShader
+
+        } );
+
+        var godraysGenShader = GodRaysGenerateShader;
+        postprocessing.godrayGenUniforms = THREE.UniformsUtils.clone( godraysGenShader.uniforms );
+        postprocessing.materialGodraysGenerate = new THREE.ShaderMaterial( {
+
+            uniforms: postprocessing.godrayGenUniforms,
+            vertexShader: godraysGenShader.vertexShader,
+            fragmentShader: godraysGenShader.fragmentShader
+
+        } );
+
+        var godraysCombineShader = GodRaysCombineShader;
+        postprocessing.godrayCombineUniforms = THREE.UniformsUtils.clone( godraysCombineShader.uniforms );
+        postprocessing.materialGodraysCombine = new THREE.ShaderMaterial( {
+
+            uniforms: postprocessing.godrayCombineUniforms,
+            vertexShader: godraysCombineShader.vertexShader,
+            fragmentShader: godraysCombineShader.fragmentShader
+
+        } );
+
+        var godraysFakeSunShader = GodRaysFakeSunShader;
+        postprocessing.godraysFakeSunUniforms = THREE.UniformsUtils.clone( godraysFakeSunShader.uniforms );
+        postprocessing.materialGodraysFakeSun = new THREE.ShaderMaterial( {
+
+            uniforms: postprocessing.godraysFakeSunUniforms,
+            vertexShader: godraysFakeSunShader.vertexShader,
+            fragmentShader: godraysFakeSunShader.fragmentShader
+
+        } );
+
+        postprocessing.godraysFakeSunUniforms.bgColor.value.setHex( bgColor );
+        postprocessing.godraysFakeSunUniforms.sunColor.value.setHex( sunColor );
+
+        postprocessing.godrayCombineUniforms.fGodRayIntensity.value = 0.75;
+
+        postprocessing.quad = new THREE.Mesh(
+            new THREE.PlaneBufferGeometry( 1.0, 1.0 ),
+            postprocessing.materialGodraysGenerate
+        );
+        postprocessing.quad.position.z = - 9900;
+        postprocessing.scene.add( postprocessing.quad );
+
+    }
+
+    function animate() {
+
+        requestAnimationFrame( animate, renderer.domElement );
+
+        stats.begin();
+        render();
+        stats.end();
+
+    }
+
+    function getStepSize( filterLen, tapsPerPass, pass ) {
+
+        return filterLen * Math.pow( tapsPerPass, - pass );
+
+    }
+
+    function filterGodRays( inputTex, renderTarget, stepSize ) {
+
+        postprocessing.scene.overrideMaterial = postprocessing.materialGodraysGenerate;
+
+        postprocessing.godrayGenUniforms[ "fStepSize" ].value = stepSize;
+        postprocessing.godrayGenUniforms[ "tInput" ].value = inputTex;
+
+        renderer.setRenderTarget( renderTarget );
+        renderer.render( postprocessing.scene, postprocessing.camera );
+        postprocessing.scene.overrideMaterial = null;
+
+    }
+
+    function render() {
+
+        var time = Date.now() / 4000;
+
+        controls.update()
+
+        sphereMesh.position.x = orbitRadius * Math.cos( time );
+        sphereMesh.position.z = orbitRadius * Math.sin( time ) - 100;
+
+        /*?
+        camera.position.x += (  mouseX  - camera.position.x) * 0.036;
+        camera.position.y += (-(mouseY) - camera.position.y) * 0.036;
+        camera.lookAt(scene.position);
+        //?*/
+
+        if ( postprocessing.enabled ) {
+
+            // Find the screenspace position of the sun
+
+            /**
+                .project ( camera : Camera ) : this
+                camera — camera to use in the projection.
+
+                Projects the vector with the camera.
+            *
+            */
+            screenSpacePosition.copy( sunPosition ).project( camera );
+            renderMatrix.update( camera.matrix.elements )
+
+            screenSpacePosition.x = ( screenSpacePosition.x + 1 ) / 2;
+            screenSpacePosition.y = ( screenSpacePosition.y + 1 ) / 2;
+
+            // Give it to the god-ray and sun shaders
+
+            postprocessing.godrayGenUniforms[ "vSunPositionScreenSpace" ].value.x = screenSpacePosition.x;
+            postprocessing.godrayGenUniforms[ "vSunPositionScreenSpace" ].value.y = screenSpacePosition.y;
+
+            postprocessing.godraysFakeSunUniforms[ "vSunPositionScreenSpace" ].value.x = screenSpacePosition.x;
+            postprocessing.godraysFakeSunUniforms[ "vSunPositionScreenSpace" ].value.y = screenSpacePosition.y;
+
+            // -- Draw sky and sun --
+
+            // Clear colors and depths, will clear to sky color
+
+            renderer.setRenderTarget( postprocessing.rtTextureColors );
+            renderer.clear( true, true, false );
+
+            // Sun render. Runs a shader that gives a brightness based on the screen
+            // space distance to the sun. Not very efficient, so i make a scissor
+            // rectangle around the suns position to avoid rendering surrounding pixels.
+
+            var sunsqH = 0.74 * window.innerHeight; // 0.74 depends on extent of sun from shader
+            var sunsqW = 0.74 * window.innerHeight; // both depend on height because sun is aspect-corrected
+
+            screenSpacePosition.x *= window.innerWidth;
+            screenSpacePosition.y *= window.innerHeight;
+
+            renderer.setScissor( screenSpacePosition.x - sunsqW / 2, screenSpacePosition.y - sunsqH / 2, sunsqW, sunsqH );
+            renderer.setScissorTest( true );
+
+            postprocessing.godraysFakeSunUniforms[ "fAspect" ].value = window.innerWidth / window.innerHeight;
+
+            postprocessing.scene.overrideMaterial = postprocessing.materialGodraysFakeSun;
+            renderer.setRenderTarget( postprocessing.rtTextureColors );
+            renderer.render( postprocessing.scene, postprocessing.camera );
+
+            renderer.setScissorTest( false );
+
+            // -- Draw scene objects --
+
+            // Colors
+
+            scene.overrideMaterial = null;
+            renderer.setRenderTarget( postprocessing.rtTextureColors );
+            renderer.render( scene, camera );
+
+            // Depth
+
+            scene.overrideMaterial = materialDepth;
+            renderer.setRenderTarget( postprocessing.rtTextureDepth );
+            renderer.clear();
+            renderer.render( scene, camera );
+
+            //
+
+            postprocessing.godrayMaskUniforms[ "tInput" ].value = postprocessing.rtTextureDepth.texture;
+
+            postprocessing.scene.overrideMaterial = postprocessing.materialGodraysDepthMask;
+            renderer.setRenderTarget( postprocessing.rtTextureDepthMask );
+            renderer.render( postprocessing.scene, postprocessing.camera );
+
+            // -- Render god-rays --
+
+            // Maximum length of god-rays (in texture space [0,1]X[0,1])
+
+            var filterLen = 1.0;
+
+            // Samples taken by filter
+
+            var TAPS_PER_PASS = 6.0;
+
+            // Pass order could equivalently be 3,2,1 (instead of 1,2,3), which
+            // would start with a small filter support and grow to large. however
+            // the large-to-small order produces less objectionable aliasing artifacts that
+            // appear as a glimmer along the length of the beams
+
+            // pass 1 - render into first ping-pong target
+            filterGodRays( postprocessing.rtTextureDepthMask.texture, postprocessing.rtTextureGodRays2, getStepSize( filterLen, TAPS_PER_PASS, 1.0 ) );
+
+            // pass 2 - render into second ping-pong target
+            filterGodRays( postprocessing.rtTextureGodRays2.texture, postprocessing.rtTextureGodRays1, getStepSize( filterLen, TAPS_PER_PASS, 2.0 ) );
+
+            // pass 3 - 1st RT
+            filterGodRays( postprocessing.rtTextureGodRays1.texture, postprocessing.rtTextureGodRays2, getStepSize( filterLen, TAPS_PER_PASS, 3.0 ) );
+
+            // final pass - composite god-rays onto colors
+
+            postprocessing.godrayCombineUniforms[ "tColors" ].value = postprocessing.rtTextureColors.texture;
+            postprocessing.godrayCombineUniforms[ "tGodRays" ].value = postprocessing.rtTextureGodRays2.texture;
+
+            postprocessing.scene.overrideMaterial = postprocessing.materialGodraysCombine;
+
+            renderer.setRenderTarget( null );
+            renderer.render( postprocessing.scene, postprocessing.camera );
+            postprocessing.scene.overrideMaterial = null;
+
+        } else {
+
+            renderer.setRenderTarget( null );
+            renderer.clear();
+            renderer.render( scene, camera );
+
+        }
+
+    }
+
+</script>
