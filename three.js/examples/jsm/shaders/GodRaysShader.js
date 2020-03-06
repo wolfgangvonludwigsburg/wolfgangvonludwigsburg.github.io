@@ -132,7 +132,7 @@ var GodRaysGenerateShader = {
 
 		// Number of iterations between pixel and sun
 
-		"	float iters = dist/fStepSize;",
+		"	float iters = abs( dist/fStepSize );",
 
 		"	vec2 uv = vUv.xy;",
 		"	float col = 0.0;",
@@ -279,6 +279,10 @@ var GodRaysFakeSunShader = {
 			value: 1.0
 		},
 
+		sunBrightness: {
+			value: 1.0
+		},
+
 		sunColor: {
 			value: new Color( 0xffee00 )
 		},
@@ -309,6 +313,7 @@ var GodRaysFakeSunShader = {
 		"uniform vec2 vSunPositionScreenSpace;",
 		"uniform float fAspect;",
 
+		"uniform float sunBrightness;",
 		"uniform vec3 sunColor;",
 		"uniform vec3 bgColor;",
 
@@ -323,7 +328,7 @@ var GodRaysFakeSunShader = {
 		"	float prop = clamp( length( diff ) / 0.5, 0.0, 1.0 );",
 		"	prop = 0.35 * pow( 1.0 - prop, 3.0 );",
 
-		"	gl_FragColor.xyz = mix( sunColor, bgColor, 1.0 - prop );",
+		"	gl_FragColor.xyz = mix( sunColor, bgColor, 1.0 - prop * sunBrightness );",
 		"	gl_FragColor.w = 1.0;",
 
 		"}"
